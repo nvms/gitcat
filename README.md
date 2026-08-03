@@ -14,6 +14,8 @@ It is not a forge. There is no issue tracker, no pull request workflow, and no w
 gitcat --repos /srv/git --bind 0.0.0.0:9090
 ```
 
+There is a `Makefile` for local use: `make server` starts it, `make check` runs the format check, lint, and tests, and `make help` lists the rest.
+
 Two kinds of repository under `--repos` are picked up: a bare `myrepo.git` directory, and an ordinary checkout with a `.git` inside it. Create a bare one with `git init --bare /srv/git/myrepo.git`, or point `--repos` at a directory of existing checkouts to browse them in place. Pushing works against bare repositories, since git refuses a push to a branch that is checked out. Options can also be set through `GITCAT_REPOS`, `GITCAT_BIND`, and `GITCAT_SITE_NAME`; log level comes from `GITCAT_LOG`.
 
 ## Status
