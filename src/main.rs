@@ -21,6 +21,11 @@ struct Cli {
     /// Name shown in the page title and index heading
     #[arg(long, env = "GITCAT_SITE_NAME", default_value = "gitcat")]
     site_name: String,
+
+    /// Origin used to build clone URLs, e.g. https://git.example.com. Defaults
+    /// to the Host header of each request.
+    #[arg(long, env = "GITCAT_BASE_URL")]
+    base_url: Option<String>,
 }
 
 #[tokio::main]
@@ -33,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let config = Arc::new(Config::new(&cli.repos, cli.site_name)?);
+    let config = Arc::new(Config::new(&cli.repos, cli.site_name)?.with_base_url(cli.base_url));
     let listener = tokio::net::TcpListener::bind(cli.bind)
         .await
         .with_context(|| format!("failed to bind {}", cli.bind))?;

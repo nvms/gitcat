@@ -1,101 +1,89 @@
 :root {
-  --bg: #111;
-  --fg: #d8d8d8;
-  --muted: #777;
-  --accent: #7fd1c1;
-  --border: #2a2a2a;
-  --row: #171717;
+  --bg: #fff;
+  --fg: #111;
+  --muted: #666;
+  --line: #ddd;
 }
 
-* {
-  box-sizing: border-box;
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111;
+    --fg: #ddd;
+    --muted: #777;
+    --line: #2a2a2a;
+  }
 }
 
 body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-header {
-  border-bottom: 1px solid var(--border);
-  padding: 0.75rem 1.5rem;
-}
-
-.brand {
-  color: var(--accent);
-  font-weight: 700;
-  text-decoration: none;
-}
-
-main {
   max-width: 60rem;
   margin: 0 auto;
   padding: 1.5rem;
-}
-
-h1 {
-  font-size: 1.1rem;
-  font-weight: 700;
-  margin: 0 0 1.25rem;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 a {
-  color: var(--accent);
-  text-decoration: none;
+  color: inherit;
 }
 
-a:hover {
-  text-decoration: underline;
+header {
+  padding-bottom: 1.5rem;
 }
 
-code {
-  color: var(--fg);
-  background: var(--row);
-  border: 1px solid var(--border);
-  padding: 0.05rem 0.3rem;
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  font-weight: normal;
+  color: var(--muted);
+}
+
+th,
+td {
+  padding: 0.25rem 1.5rem 0.25rem 0;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
 }
 
 .muted {
   color: var(--muted);
 }
 
-.empty {
+h2,
+h3 {
+  font-size: 1em;
+  margin: 1.5rem 0 0.5rem;
+}
+
+pre {
+  overflow-x: auto;
+  margin: 0;
+}
+
+.diff td {
+  border: 0;
+  padding: 0 0.5rem 0 0;
+  white-space: pre;
+}
+
+.diff .num {
+  text-align: right;
+  color: var(--muted);
+  user-select: none;
+}
+
+.diff .hunk {
   color: var(--muted);
 }
 
-table.repos {
-  width: 100%;
-  border-collapse: collapse;
+.diff .add {
+  color: #0a0;
 }
 
-table.repos th {
-  text-align: left;
-  font-weight: 400;
-  color: var(--muted);
-  border-bottom: 1px solid var(--border);
-  padding: 0.35rem 0.75rem 0.35rem 0;
-}
-
-table.repos td {
-  padding: 0.35rem 0.75rem 0.35rem 0;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-
-table.repos tr:hover td {
-  background: var(--row);
-}
-
-.description {
-  color: var(--fg);
-  width: 55%;
-}
-
-.updated {
-  color: var(--muted);
-  white-space: nowrap;
+.diff .del {
+  color: #c00;
 }

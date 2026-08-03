@@ -506,6 +506,7 @@ dependencies = [
  "gix",
  "http-body-util",
  "maud",
+ "percent-encoding",
  "tempfile",
  "thiserror",
  "tokio",

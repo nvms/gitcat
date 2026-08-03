@@ -53,9 +53,11 @@ async fn index_lists_repositories() {
 async fn index_explains_an_empty_repository_directory() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let (status, body) = get(tmp.path(), "/").await;
+    let scanned = tmp.path().canonicalize().expect("canonicalize");
 
     assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("No repositories yet"));
+    assert!(body.contains("No bare repositories in"));
+    assert!(body.contains(&scanned.display().to_string()));
 }
 
 #[tokio::test]
