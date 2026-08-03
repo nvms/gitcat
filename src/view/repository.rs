@@ -1,10 +1,11 @@
-use maud::{Markup, html};
+use maud::{Markup, PreEscaped, html};
 
 use super::{encode_path, encode_segment, page};
 use crate::git::{
-    Blob, ChangeStatus, Commit, EntryKind, FileDiff, LineKind, MAX_RENDER_BYTES, RefInfo, TreeItem,
+    Blob, ChangeStatus, Commit, DiffBody, EntryKind, FileDiff, Hunk, LineKind, MAX_RENDER_BYTES,
+    Readme, RefInfo, TreeItem,
 };
-use crate::time;
+use crate::{highlight, markdown, time};
 
 pub struct Context<'a> {
     pub repo: &'a str,
@@ -29,16 +30,22 @@ impl Context<'_> {
         format!("{}/commit/{id}", self.base())
     }
 
-    fn nav(&self) -> Markup {
+    fn nav(&self, active: &str) -> Markup {
+        let section = |name: &str, href: String| -> Markup {
+            html! {
+                a href=(href) class=@if name == active { "active" } @else { "" } { (name) }
+            }
+        };
+
         html! {
-            a href="/" { "gitcat" } " / "
-            a href=(self.base()) { (self.repo) }
-            " "
-            a href=(self.base()) { "summary" }
-            " "
-            a href={ (self.base()) "/log/" (encode_segment(self.rev)) } { "log" }
-            " "
-            a href=(self.at("tree", "")) { "tree" }
+            div class="crumbs" {
+                a href="/" { "gitcat" } " / " a href=(self.base()) { (self.repo) }
+            }
+            nav {
+                (section("summary", self.base()))
+                (section("log", format!("{}/log/{}", self.base(), encode_segment(self.rev))))
+                (section("tree", self.at("tree", "")))
+            }
         }
     }
 
@@ -52,51 +59,85 @@ pub struct Summary<'a> {
     pub branches: &'a [RefInfo],
     pub tags: &'a [RefInfo],
     pub commits: &'a [Commit],
+    pub entries: &'a [TreeItem],
+    pub readme: Option<&'a Readme>,
 }
 
+/// Ordered the way a repository is actually read: what is in it, what it says
+/// about itself, what changed lately, and only then the refs.
 pub fn summary(ctx: &Context, data: &Summary) -> Markup {
     page(
         ctx.repo,
-        ctx.nav(),
+        ctx.nav("summary"),
         html! {
             p { code { (data.clone_url) } }
 
             @if data.commits.is_empty() {
                 p class="muted" { "This repository is empty. Push a commit to see it here." }
             } @else {
+                (tree_table(ctx, "", data.entries))
+
+                @if let Some(readme) = data.readme {
+                    (readme_section(ctx, readme))
+                }
+
+                h2 { "recent commits" }
                 (commit_table(ctx, data.commits))
                 p { a href={ (ctx.base()) "/log/" (encode_segment(ctx.rev)) } { "more commits" } }
             }
 
             @if !data.branches.is_empty() {
                 h2 { "branches" }
-                ul {
-                    @for branch in data.branches {
-                        li {
-                            a href={ (ctx.base()) "/tree/" (encode_segment(&branch.name)) } { (branch.name) }
-                        }
-                    }
-                }
+                (ref_list(ctx, data.branches))
             }
 
             @if !data.tags.is_empty() {
                 h2 { "tags" }
-                ul {
-                    @for tag in data.tags {
-                        li {
-                            a href={ (ctx.base()) "/tree/" (encode_segment(&tag.name)) } { (tag.name) }
-                        }
-                    }
-                }
+                (ref_list(ctx, data.tags))
             }
         },
     )
 }
 
+fn ref_list(ctx: &Context, refs: &[RefInfo]) -> Markup {
+    html! {
+        ul {
+            @for entry in refs {
+                li {
+                    a href={ (ctx.base()) "/tree/" (encode_segment(&entry.name)) } { (entry.name) }
+                }
+            }
+        }
+    }
+}
+
+/// The rendered markup is produced by `markdown::render`, which strips raw HTML
+/// and unsafe link schemes before it ever reaches here.
+fn readme_section(ctx: &Context, readme: &Readme) -> Markup {
+    let markup = if is_markdown(&readme.name) {
+        PreEscaped(markdown::render(
+            &readme.text,
+            &links_relative_to(ctx, &readme.name),
+        ))
+    } else {
+        html! { pre { (readme.text) } }
+    };
+
+    html! {
+        h2 { (readme.name) }
+        article class="readme" { (markup) }
+    }
+}
+
+fn is_markdown(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.ends_with(".md") || lower.ends_with(".markdown")
+}
+
 pub fn log(ctx: &Context, commits: &[Commit], next: Option<&str>) -> Markup {
     page(
         &ctx.title("log"),
-        ctx.nav(),
+        ctx.nav("log"),
         html! {
             @if commits.is_empty() {
                 p class="muted" { "No commits." }
@@ -133,7 +174,7 @@ fn commit_table(ctx: &Context, commits: &[Commit]) -> Markup {
 pub fn commit(ctx: &Context, commit: &Commit, diffs: &[FileDiff]) -> Markup {
     page(
         &ctx.title(&commit.short_id),
-        ctx.nav(),
+        ctx.nav("log"),
         html! {
             h2 { (commit.summary) }
             @if let Some(body) = &commit.body {
@@ -160,10 +201,7 @@ pub fn commit(ctx: &Context, commit: &Commit, diffs: &[FileDiff]) -> Markup {
                         span class="muted" { " (from " (old) ")" }
                     }
                 }
-                @match &file.skipped {
-                    Some(reason) => p class="muted" { (reason) },
-                    None => (hunks(file)),
-                }
+                (diff_body(&file.body))
             }
         },
     )
@@ -178,10 +216,26 @@ fn status_label(status: ChangeStatus) -> &'static str {
     }
 }
 
-fn hunks(file: &FileDiff) -> Markup {
+fn diff_body(body: &DiffBody) -> Markup {
+    html! {
+        @match body {
+            DiffBody::Text(hunks) => (hunk_table(hunks)),
+            DiffBody::Submodule { old, new } => p class="muted" {
+                "Submodule pointer changed"
+                @if let Some(old) = old { br; "from " (old) }
+                @if let Some(new) = new { br; "to " (new) }
+            },
+            DiffBody::Binary => p class="muted" { "Binary file, not shown." },
+            DiffBody::TooLarge => p class="muted" { "File is too large to diff." },
+            DiffBody::Unreadable => p class="muted" { "Contents are not available in this repository." },
+        }
+    }
+}
+
+fn hunk_table(hunks: &[Hunk]) -> Markup {
     html! {
         table class="diff" {
-            @for hunk in &file.hunks {
+            @for hunk in hunks {
                 tr class="hunk" { td colspan="3" { (hunk.header) } }
                 @for line in &hunk.lines {
                     tr class=(line_class(line.kind)) {
@@ -214,56 +268,87 @@ fn line_prefix(kind: LineKind) -> &'static str {
 pub fn tree(ctx: &Context, path: &str, items: &[TreeItem]) -> Markup {
     page(
         &ctx.title("tree"),
-        ctx.nav(),
+        ctx.nav("tree"),
         html! {
             (breadcrumbs(ctx, path, "tree"))
+            (tree_table(ctx, path, items))
+        },
+    )
+}
 
-            table {
-                tbody {
-                    @if !path.is_empty() {
-                        tr { td { a href=(ctx.at("tree", parent_of(path))) { ".." } } }
-                    }
-                    @for item in items {
-                        tr {
-                            td {
-                                @let child = join(path, &item.name);
-                                @match item.kind {
-                                    EntryKind::Directory => {
-                                        a href=(ctx.at("tree", &child)) { (item.name) "/" }
-                                    }
-                                    EntryKind::Submodule => {
-                                        span class="muted" { (item.name) "@" }
-                                    }
-                                    _ => {
-                                        a href=(ctx.at("blob", &child)) { (item.name) }
-                                    }
+fn tree_table(ctx: &Context, path: &str, items: &[TreeItem]) -> Markup {
+    html! {
+        table {
+            tbody {
+                @if !path.is_empty() {
+                    tr { td { a href=(ctx.at("tree", parent_of(path))) { ".." } } }
+                }
+                @for item in items {
+                    tr {
+                        td {
+                            @let child = join(path, &item.name);
+                            @match item.kind {
+                                EntryKind::Directory => {
+                                    a href=(ctx.at("tree", &child)) { (item.name) "/" }
+                                }
+                                EntryKind::Submodule => {
+                                    span class="muted" { (item.name) "@" }
+                                }
+                                _ => {
+                                    a href=(ctx.at("blob", &child)) { (item.name) }
                                 }
                             }
                         }
                     }
                 }
             }
-        },
-    )
+        }
+    }
 }
 
 pub fn blob(ctx: &Context, path: &str, blob: &Blob) -> Markup {
     page(
         &ctx.title(path),
-        ctx.nav(),
+        ctx.nav("tree"),
         html! {
             (breadcrumbs(ctx, path, "blob"))
-            p { a href=(ctx.at("raw", path)) { "raw" } " " (blob.bytes.len()) " bytes" }
+            p { a href=(ctx.at("raw", path)) { "raw" } " " span class="muted" { (blob.bytes.len()) " bytes" } }
 
             @if blob.binary {
                 p class="muted" { "Binary file." }
             } @else if blob.bytes.len() > MAX_RENDER_BYTES {
                 p class="muted" { "File is too large to display." }
+            } @else if is_markdown(path) {
+                article class="readme" {
+                    (PreEscaped(markdown::render(
+                        &String::from_utf8_lossy(&blob.bytes),
+                        &links_relative_to(ctx, path),
+                    )))
+                }
             } @else {
-                pre { (String::from_utf8_lossy(&blob.bytes)) }
+                (source(path, &String::from_utf8_lossy(&blob.bytes)))
             }
         },
     )
+}
+
+/// Relative links inside a markdown file resolve against the directory that
+/// file lives in, not the repository root.
+fn links_relative_to(ctx: &Context, path: &str) -> markdown::Links {
+    let dir = parent_of(path);
+
+    markdown::Links {
+        blob_base: ctx.at("blob", dir),
+        raw_base: ctx.at("raw", dir),
+    }
+}
+
+/// Highlighted when syntect recognises the file, plain escaped text otherwise.
+fn source(path: &str, text: &str) -> Markup {
+    match highlight::html(text, highlight::Hint::FileName(path)) {
+        Some(highlighted) => html! { pre { code { (PreEscaped(highlighted)) } } },
+        None => html! { pre { code { (text) } } },
+    }
 }
 
 /// Each segment links to the tree it sits in. The final segment of a blob path

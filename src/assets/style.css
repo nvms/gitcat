@@ -3,6 +3,12 @@
   --fg: #111;
   --muted: #666;
   --line: #ddd;
+  --add: #1a7f37;
+  --del: #b42318;
+  --syn-comment: #8a8a8a;
+  --syn-string: #3f7d3f;
+  --syn-keyword: #8a4b7d;
+  --syn-const: #2a6099;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -11,6 +17,12 @@
     --fg: #ddd;
     --muted: #777;
     --line: #2a2a2a;
+    --add: #4ac26b;
+    --del: #e5675c;
+    --syn-comment: #767676;
+    --syn-string: #86b586;
+    --syn-keyword: #c79bb8;
+    --syn-const: #83aed0;
   }
 }
 
@@ -29,6 +41,15 @@ a {
 
 header {
   padding-bottom: 1.5rem;
+}
+
+nav a {
+  margin-right: 1rem;
+}
+
+nav .active {
+  text-decoration: none;
+  font-weight: bold;
 }
 
 table {
@@ -53,8 +74,10 @@ td {
   color: var(--muted);
 }
 
+h1,
 h2,
-h3 {
+h3,
+h4 {
   font-size: 1em;
   margin: 1.5rem 0 0.5rem;
 }
@@ -62,6 +85,10 @@ h3 {
 pre {
   overflow-x: auto;
   margin: 0;
+}
+
+img {
+  max-width: 100%;
 }
 
 .diff td {
@@ -81,9 +108,53 @@ pre {
 }
 
 .diff .add {
-  color: #0a0;
+  color: var(--add);
 }
 
 .diff .del {
-  color: #c00;
+  color: var(--del);
+}
+
+.readme {
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+}
+
+.readme pre {
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+}
+
+.readme blockquote {
+  margin: 0;
+  padding-left: 1rem;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+}
+
+.readme td,
+.readme th {
+  padding-right: 1.5rem;
+}
+
+.syn-comment {
+  color: var(--syn-comment);
+}
+
+.syn-string,
+.syn-char {
+  color: var(--syn-string);
+}
+
+.syn-keyword,
+.syn-storage {
+  color: var(--syn-keyword);
+}
+
+.syn-constant,
+.syn-numeric,
+.syn-entity,
+.syn-support,
+.syn-tag {
+  color: var(--syn-const);
 }

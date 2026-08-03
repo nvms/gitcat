@@ -62,7 +62,7 @@ impl IntoResponse for AppError {
 pub fn router(config: AppState) -> Router {
     Router::new()
         .route("/", get(index))
-        .route("/static/style.css", get(stylesheet))
+        .route("/static/{version}/style.css", get(stylesheet))
         .route("/{repo}", get(summary))
         .route("/{repo}/log/{rev}", get(log))
         .route("/{repo}/commit/{rev}", get(commit))
@@ -93,6 +93,14 @@ async fn summary(
         Err(_) => Vec::new(),
     };
 
+    let (entries, readme) = match git::resolve(&git_repo, &rev) {
+        Ok(head) => (
+            git::tree(&git_repo, head, "").unwrap_or_default(),
+            git::readme(&git_repo, head),
+        ),
+        Err(_) => (Vec::new(), None),
+    };
+
     let host = headers.get(header::HOST).and_then(|h| h.to_str().ok());
     let clone_url = format!("git clone {}/{}.git", config.origin_for(host), name);
     let branches = git::branches(&git_repo);
@@ -110,6 +118,8 @@ async fn summary(
             branches: &branches,
             tags: &tags,
             commits: &commits,
+            entries: &entries,
+            readme: readme.as_ref(),
         },
     ))
 }
@@ -212,11 +222,13 @@ async fn raw(
         .into_response())
 }
 
+/// The URL carries a fingerprint of the content, so this can be cached hard -
+/// a new build links a new URL rather than being shadowed by a stale copy.
 async fn stylesheet() -> impl IntoResponse {
     (
         [
             (header::CONTENT_TYPE, "text/css; charset=utf-8"),
-            (header::CACHE_CONTROL, "public, max-age=3600"),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
         ],
         view::STYLE,
     )

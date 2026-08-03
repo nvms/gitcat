@@ -86,12 +86,3 @@ async fn unknown_paths_return_404() {
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(body.contains("Not Found"));
 }
-
-#[tokio::test]
-async fn stylesheet_is_served_from_the_binary() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let (status, body) = get(tmp.path(), "/static/style.css").await;
-
-    assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("--bg:"));
-}

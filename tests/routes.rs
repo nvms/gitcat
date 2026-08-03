@@ -33,6 +33,24 @@ async fn get(root: &Path, uri: &str) -> (StatusCode, String) {
     (status, String::from_utf8_lossy(&body).into_owned())
 }
 
+/// Syntax highlighting wraps tokens in spans, so assertions about what a page
+/// says have to look at the text, not the markup.
+fn text_of(html: &str) -> String {
+    let mut out = String::new();
+    let mut inside_tag = false;
+
+    for c in html.chars() {
+        match c {
+            '<' => inside_tag = true,
+            '>' => inside_tag = false,
+            _ if !inside_tag => out.push(c),
+            _ => {}
+        }
+    }
+
+    out
+}
+
 struct Fixture {
     root_commit: String,
     head: String,
@@ -162,7 +180,8 @@ async fn blob_shows_file_contents_and_raw_serves_bytes() {
 
     let (status, body) = get(tmp.path(), "/demo/blob/main/src/main.rs").await;
     assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("fn main() {}"));
+    assert!(text_of(&body).contains("fn main() {}"));
+    assert!(body.contains("syn-"), "source should be highlighted");
 
     let (status, raw) = get(tmp.path(), "/demo/raw/main/src/main.rs").await;
     assert_eq!(status, StatusCode::OK);
@@ -253,6 +272,199 @@ async fn blob_view_escapes_file_contents() {
 
     let (_, body) = get(root, "/demo/blob/main/evil.html").await;
 
-    assert!(!body.contains("<script>alert(1)</script>"));
-    assert!(body.contains("&lt;script&gt;"));
+    assert!(
+        !body.contains("<script"),
+        "no live script tag may be emitted"
+    );
+    assert!(!body.contains("alert(1)</script>"));
+    assert!(body.contains("&lt;"), "markup must arrive escaped");
+    assert!(text_of(&body).contains("alert(1)"), "as visible text");
+}
+
+#[tokio::test]
+async fn summary_renders_the_readme_and_lists_the_tree_first() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+    let work = root.join("work");
+    std::fs::create_dir_all(&work).expect("create work tree");
+
+    common::git(&work, &["init", "--initial-branch", "main", "."]);
+    std::fs::write(
+        work.join("README.md"),
+        "# Demo\n\nSome *docs*.\n\n```rust\nfn main() {}\n```\n",
+    )
+    .expect("write");
+    std::fs::write(work.join("code.rs"), "fn main() {}\n").expect("write");
+    common::git(&work, &["add", "."]);
+    common::commit(&work, "initial", 1_700_000_000);
+    common::git(
+        root,
+        &["clone", "--bare", work.to_str().expect("utf-8"), "demo.git"],
+    );
+    std::fs::remove_dir_all(&work).expect("cleanup");
+
+    let (status, body) = get(root, "/demo").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("<h1>Demo</h1>"),
+        "readme is rendered markdown"
+    );
+    assert!(body.contains("<em>docs</em>"));
+    assert!(body.contains("syn-"), "readme code block is highlighted");
+
+    let tree = body.find("code.rs").expect("tree entry");
+    let readme = body.find("<h1>Demo</h1>").expect("readme");
+    let commits = body.find("recent commits").expect("commits section");
+    let branches = body.find("branches").expect("branches section");
+    assert!(tree < readme, "tree comes before the readme");
+    assert!(readme < commits, "readme comes before recent commits");
+    assert!(commits < branches, "branches come last");
+}
+
+#[tokio::test]
+async fn any_markdown_blob_renders_as_markdown() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+    let work = root.join("work");
+    std::fs::create_dir_all(&work).expect("create work tree");
+    std::fs::create_dir(work.join("docs")).expect("mkdir");
+
+    common::git(&work, &["init", "--initial-branch", "main", "."]);
+    std::fs::write(
+        work.join("docs/guide.md"),
+        "## Guide\n\n[next](./other.md)\n\n![img](pic.png)\n",
+    )
+    .expect("write");
+    common::git(&work, &["add", "."]);
+    common::commit(&work, "initial", 1_700_000_000);
+    common::git(
+        root,
+        &["clone", "--bare", work.to_str().expect("utf-8"), "demo.git"],
+    );
+    std::fs::remove_dir_all(&work).expect("cleanup");
+
+    let (status, body) = get(root, "/demo/blob/main/docs/guide.md").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("<h2>Guide</h2>"));
+    assert!(
+        body.contains(r#"href="/demo/blob/main/docs/other.md""#),
+        "relative links resolve against the file's own directory"
+    );
+    assert!(body.contains(r#"src="/demo/raw/main/docs/pic.png""#));
+}
+
+#[tokio::test]
+async fn a_markdown_blob_can_still_be_fetched_raw() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+    let work = root.join("work");
+    std::fs::create_dir_all(&work).expect("create work tree");
+
+    common::git(&work, &["init", "--initial-branch", "main", "."]);
+    std::fs::write(work.join("doc.md"), "# Title\n").expect("write");
+    common::git(&work, &["add", "."]);
+    common::commit(&work, "initial", 1_700_000_000);
+    common::git(
+        root,
+        &["clone", "--bare", work.to_str().expect("utf-8"), "demo.git"],
+    );
+    std::fs::remove_dir_all(&work).expect("cleanup");
+
+    let (status, raw) = get(root, "/demo/raw/main/doc.md").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(raw, "# Title\n");
+}
+
+#[tokio::test]
+async fn a_readme_cannot_inject_script() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+    let work = root.join("work");
+    std::fs::create_dir_all(&work).expect("create work tree");
+
+    common::git(&work, &["init", "--initial-branch", "main", "."]);
+    std::fs::write(
+        work.join("README.md"),
+        "<script>alert(1)</script>\n\n[x](javascript:alert(2))\n",
+    )
+    .expect("write");
+    common::git(&work, &["add", "."]);
+    common::commit(&work, "initial", 1_700_000_000);
+    common::git(
+        root,
+        &["clone", "--bare", work.to_str().expect("utf-8"), "demo.git"],
+    );
+    std::fs::remove_dir_all(&work).expect("cleanup");
+
+    let (_, body) = get(root, "/demo").await;
+
+    assert!(!body.contains("<script"));
+    assert!(!body.contains("javascript:"));
+}
+
+#[tokio::test]
+async fn submodule_changes_are_described_not_diffed() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+    let inner = root.join("inner");
+    let work = root.join("work");
+    std::fs::create_dir_all(&inner).expect("create inner");
+    std::fs::create_dir_all(&work).expect("create work tree");
+
+    common::git(&inner, &["init", "--initial-branch", "main", "."]);
+    std::fs::write(inner.join("a.txt"), "hello\n").expect("write");
+    common::git(&inner, &["add", "."]);
+    common::commit(&inner, "inner commit", 1_700_000_000);
+
+    common::git(&work, &["init", "--initial-branch", "main", "."]);
+    std::fs::write(work.join("top.txt"), "top\n").expect("write");
+    common::git(&work, &["add", "."]);
+    common::commit(&work, "initial", 1_700_000_000);
+    common::git(
+        &work,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            inner.to_str().expect("utf-8"),
+            "vendor",
+        ],
+    );
+    common::commit(&work, "add submodule", 1_700_000_100);
+    let head = common::capture(&work, &["rev-parse", "HEAD"]);
+
+    common::git(
+        root,
+        &["clone", "--bare", work.to_str().expect("utf-8"), "demo.git"],
+    );
+
+    let (status, body) = get(root, &format!("/demo/commit/{head}")).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Submodule pointer changed"));
+    assert!(!body.contains("not a file"));
+    assert!(!body.contains("unreadable"));
+}
+
+#[tokio::test]
+async fn the_stylesheet_url_changes_with_its_content() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let (_, body) = get(tmp.path(), "/").await;
+
+    let href = body
+        .split(r#"<link rel="stylesheet" href=""#)
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .expect("stylesheet link");
+
+    assert!(href.starts_with("/static/"), "{href}");
+    assert!(href.ends_with("/style.css"), "{href}");
+
+    let (status, css) = get(tmp.path(), href).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(css.contains("--bg:"));
 }

@@ -90,15 +90,29 @@ pub struct Hunk {
     pub lines: Vec<DiffLine>,
 }
 
+/// What the UI should show under a changed path. Anything that is not a plain
+/// text diff gets its own variant so the view can explain it instead of
+/// rendering an empty diff or an internal error string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiffBody {
+    Text(Vec<Hunk>),
+    /// A gitlink. The pointed-at commits live in the submodule's own
+    /// repository, so there is nothing here to diff.
+    Submodule {
+        old: Option<String>,
+        new: Option<String>,
+    },
+    Binary,
+    TooLarge,
+    Unreadable,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileDiff {
     pub path: String,
     pub old_path: Option<String>,
     pub status: ChangeStatus,
-    pub hunks: Vec<Hunk>,
-    /// Set when the content was binary or too large to diff, in which case
-    /// `hunks` is empty and the UI says so rather than rendering nothing.
-    pub skipped: Option<&'static str>,
+    pub body: DiffBody,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -289,6 +303,39 @@ pub fn blob(repo: &gix::Repository, id: gix::ObjectId, path: &str) -> Result<Blo
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Readme {
+    pub name: String,
+    pub text: String,
+}
+
+/// Finds a README at the root of the tree. `README.md` wins over a bare
+/// `README`, and the comparison is case-insensitive because repositories are
+/// inconsistent about it.
+pub fn readme(repo: &gix::Repository, id: gix::ObjectId) -> Option<Readme> {
+    const PREFERRED: [&str; 4] = ["readme.md", "readme.markdown", "readme.txt", "readme"];
+
+    let entries = tree(repo, id, "").ok()?;
+    let name = PREFERRED.iter().find_map(|candidate| {
+        entries
+            .iter()
+            .find(|item| {
+                item.kind != EntryKind::Directory && item.name.to_ascii_lowercase() == *candidate
+            })
+            .map(|item| item.name.clone())
+    })?;
+
+    let blob = blob(repo, id, &name).ok()?;
+    if blob.binary || blob.bytes.len() > MAX_RENDER_BYTES {
+        return None;
+    }
+
+    Some(Readme {
+        text: String::from_utf8_lossy(&blob.bytes).into_owned(),
+        name,
+    })
+}
+
 pub fn is_binary(bytes: &[u8]) -> bool {
     bytes.iter().take(BINARY_SNIFF_BYTES).any(|&byte| byte == 0)
 }
@@ -319,88 +366,129 @@ pub fn commit_diff(repo: &gix::Repository, id: gix::ObjectId) -> Result<Vec<File
     Ok(diffs)
 }
 
-fn file_diff(
-    repo: &gix::Repository,
-    change: gix::object::tree::diff::ChangeDetached,
-) -> Result<FileDiff, GitError> {
+struct ChangedPath {
+    path: String,
+    old_path: Option<String>,
+    status: ChangeStatus,
+    old: Option<(gix::ObjectId, gix::object::tree::EntryKind)>,
+    new: Option<(gix::ObjectId, gix::object::tree::EntryKind)>,
+}
+
+fn describe(change: gix::object::tree::diff::ChangeDetached) -> ChangedPath {
     use gix::object::tree::diff::ChangeDetached as Change;
 
-    let (path, old_path, status, old_id, new_id) = match change {
-        Change::Addition { location, id, .. } => (
-            location.to_string(),
-            None,
-            ChangeStatus::Added,
-            None,
-            Some(id),
-        ),
-        Change::Deletion { location, id, .. } => (
-            location.to_string(),
-            None,
-            ChangeStatus::Deleted,
-            Some(id),
-            None,
-        ),
+    match change {
+        Change::Addition {
+            location,
+            id,
+            entry_mode,
+            ..
+        } => ChangedPath {
+            path: location.to_string(),
+            old_path: None,
+            status: ChangeStatus::Added,
+            old: None,
+            new: Some((id, entry_mode.kind())),
+        },
+        Change::Deletion {
+            location,
+            id,
+            entry_mode,
+            ..
+        } => ChangedPath {
+            path: location.to_string(),
+            old_path: None,
+            status: ChangeStatus::Deleted,
+            old: Some((id, entry_mode.kind())),
+            new: None,
+        },
         Change::Modification {
             location,
             previous_id,
+            previous_entry_mode,
             id,
+            entry_mode,
             ..
-        } => (
-            location.to_string(),
-            None,
-            ChangeStatus::Modified,
-            Some(previous_id),
-            Some(id),
-        ),
+        } => ChangedPath {
+            path: location.to_string(),
+            old_path: None,
+            status: ChangeStatus::Modified,
+            old: Some((previous_id, previous_entry_mode.kind())),
+            new: Some((id, entry_mode.kind())),
+        },
         Change::Rewrite {
             location,
             source_location,
             source_id,
+            source_entry_mode,
             id,
+            entry_mode,
             ..
-        } => (
-            location.to_string(),
-            Some(source_location.to_string()),
-            ChangeStatus::Renamed,
-            Some(source_id),
-            Some(id),
-        ),
-    };
+        } => ChangedPath {
+            path: location.to_string(),
+            old_path: Some(source_location.to_string()),
+            status: ChangeStatus::Renamed,
+            old: Some((source_id, source_entry_mode.kind())),
+            new: Some((id, entry_mode.kind())),
+        },
+    }
+}
 
-    let old = load_text(repo, old_id);
-    let new = load_text(repo, new_id);
-
-    let (hunks, skipped) = match (old, new) {
-        (Ok(old), Ok(new)) => (text_hunks(&old, &new)?, None),
-        (Err(reason), _) | (_, Err(reason)) => (Vec::new(), Some(reason)),
-    };
+fn file_diff(
+    repo: &gix::Repository,
+    change: gix::object::tree::diff::ChangeDetached,
+) -> Result<FileDiff, GitError> {
+    let changed = describe(change);
+    let body = diff_body(repo, &changed)?;
 
     Ok(FileDiff {
-        path,
-        old_path,
-        status,
-        hunks,
-        skipped,
+        path: changed.path,
+        old_path: changed.old_path,
+        status: changed.status,
+        body,
     })
 }
 
-fn load_text(repo: &gix::Repository, id: Option<gix::ObjectId>) -> Result<Vec<u8>, &'static str> {
+fn diff_body(repo: &gix::Repository, changed: &ChangedPath) -> Result<DiffBody, GitError> {
+    use gix::object::tree::EntryKind::Commit;
+
+    let is_submodule = |side: &Option<(gix::ObjectId, gix::object::tree::EntryKind)>| {
+        matches!(side, Some((_, Commit)))
+    };
+
+    if is_submodule(&changed.old) || is_submodule(&changed.new) {
+        return Ok(DiffBody::Submodule {
+            old: changed.old.map(|(id, _)| id.to_string()),
+            new: changed.new.map(|(id, _)| id.to_string()),
+        });
+    }
+
+    let old = load_text(repo, changed.old.map(|(id, _)| id));
+    let new = load_text(repo, changed.new.map(|(id, _)| id));
+
+    match (old, new) {
+        (Ok(old), Ok(new)) => Ok(DiffBody::Text(text_hunks(&old, &new)?)),
+        (Err(reason), _) | (_, Err(reason)) => Ok(reason),
+    }
+}
+
+fn load_text(repo: &gix::Repository, id: Option<gix::ObjectId>) -> Result<Vec<u8>, DiffBody> {
     let Some(id) = id else {
         return Ok(Vec::new());
     };
 
-    let object = repo.find_object(id).map_err(|_| "unreadable")?;
+    let object = repo.find_object(id).map_err(|_| DiffBody::Unreadable)?;
     let bytes = object
         .try_into_blob()
-        .map_err(|_| "not a file")?
+        .map_err(|_| DiffBody::Unreadable)?
         .data
         .clone();
 
     if bytes.len() > MAX_RENDER_BYTES {
-        return Err("file too large to diff");
+        return Err(DiffBody::TooLarge);
     }
     if is_binary(&bytes) {
-        return Err("binary file");
+        return Err(DiffBody::Binary);
     }
 
     Ok(bytes)
