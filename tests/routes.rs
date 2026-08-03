@@ -314,12 +314,20 @@ async fn summary_renders_the_readme_and_lists_the_tree_first() {
     assert!(body.contains("syn-"), "readme code block is highlighted");
 
     let tree = body.find("code.rs").expect("tree entry");
-    let readme = body.find("<h1>Demo</h1>").expect("readme");
     let commits = body.find("recent commits").expect("commits section");
-    let branches = body.find("branches").expect("branches section");
-    assert!(tree < readme, "tree comes before the readme");
-    assert!(readme < commits, "readme comes before recent commits");
-    assert!(commits < branches, "branches come last");
+    let refs = body.find(">refs<").expect("refs section");
+    let readme = body.find("<h1>Demo</h1>").expect("readme");
+
+    assert!(tree < commits, "files panel comes first");
+    assert!(commits < refs, "commits panel comes before refs");
+    assert!(
+        refs < readme,
+        "the readme is last, so nothing below it reads as part of it"
+    );
+    assert!(
+        !body.contains("<h2>README.md</h2>"),
+        "the readme needs no heading of its own"
+    );
 }
 
 #[tokio::test]

@@ -75,36 +75,80 @@ pub fn summary(ctx: &Context, data: &Summary) -> Markup {
             @if data.commits.is_empty() {
                 p class="muted" { "This repository is empty. Push a commit to see it here." }
             } @else {
-                (tree_table(ctx, "", data.entries))
+                div class="panels" {
+                    (panel("files", tree_table(ctx, "", data.entries), None))
+                    (panel(
+                        "recent commits",
+                        commit_list(ctx, data.commits),
+                        Some((
+                            "full history",
+                            format!("{}/log/{}", ctx.base(), encode_segment(ctx.rev)),
+                        )),
+                    ))
+                    @if !data.branches.is_empty() || !data.tags.is_empty() {
+                        (panel("refs", ref_lists(ctx, data), None))
+                    }
+                }
 
                 @if let Some(readme) = data.readme {
                     (readme_section(ctx, readme))
                 }
-
-                h2 { "recent commits" }
-                (commit_table(ctx, data.commits))
-                p { a href={ (ctx.base()) "/log/" (encode_segment(ctx.rev)) } { "more commits" } }
-            }
-
-            @if !data.branches.is_empty() {
-                h2 { "branches" }
-                (ref_list(ctx, data.branches))
-            }
-
-            @if !data.tags.is_empty() {
-                h2 { "tags" }
-                (ref_list(ctx, data.tags))
             }
         },
     )
 }
 
+/// Each panel scrolls inside a capped height - a repository with thousands of
+/// commits or hundreds of tags must not push everything else off the page.
+fn panel(title: &str, body: Markup, footer: Option<(&str, String)>) -> Markup {
+    html! {
+        section class="panel" {
+            h2 { (title) }
+            div class="scroll" { (body) }
+            @if let Some((label, href)) = footer {
+                p class="panel-footer" { a href=(href) { (label) } }
+            }
+        }
+    }
+}
+
+fn ref_lists(ctx: &Context, data: &Summary) -> Markup {
+    html! {
+        @if !data.branches.is_empty() {
+            h3 { "branches" }
+            (ref_list(ctx, data.branches))
+        }
+        @if !data.tags.is_empty() {
+            h3 { "tags" }
+            (ref_list(ctx, data.tags))
+        }
+    }
+}
+
 fn ref_list(ctx: &Context, refs: &[RefInfo]) -> Markup {
     html! {
-        ul class="mono" {
+        ul class="mono plain" {
             @for entry in refs {
                 li {
                     a href={ (ctx.base()) "/tree/" (encode_segment(&entry.name)) } { (entry.name) }
+                }
+            }
+        }
+    }
+}
+
+/// A column is too narrow for the four-column log table, so each commit becomes
+/// a summary line with its metadata underneath.
+fn commit_list(ctx: &Context, commits: &[Commit]) -> Markup {
+    html! {
+        ul class="plain commits" {
+            @for commit in commits {
+                li {
+                    a href=(ctx.commit_url(&commit.id)) { (commit.summary) }
+                    div class="muted" {
+                        span class="mono" { (commit.short_id) }
+                        " " (commit.author) " " (time::relative(commit.seconds))
+                    }
                 }
             }
         }
@@ -123,10 +167,7 @@ fn readme_section(ctx: &Context, readme: &Readme) -> Markup {
         html! { pre { (readme.text) } }
     };
 
-    html! {
-        h2 { (readme.name) }
-        article class="readme" { (markup) }
-    }
+    html! { article class="readme" { (markup) } }
 }
 
 fn is_markdown(name: &str) -> bool {
