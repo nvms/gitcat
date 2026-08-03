@@ -1,4 +1,7 @@
+/* lets the browser pick its dark-mode defaults, notably link colours - the
+   light-mode #0000EE is unreadable on a dark background */
 :root {
+  color-scheme: light dark;
   --bg: #fff;
   --fg: #111;
   --muted: #666;
@@ -42,16 +45,6 @@ pre,
 .diff {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.9em;
-}
-
-/* links take the text colour rather than a hue, so the underline is what marks
-   them; hover has to put the feedback back somewhere */
-a {
-  color: inherit;
-}
-
-a:hover {
-  color: var(--muted);
 }
 
 header {
