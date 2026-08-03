@@ -30,6 +30,34 @@ pub struct RepoEntry {
     pub name: String,
     pub description: Option<String>,
     pub head: Option<CommitSummary>,
+    /// Bare repositories can be pushed to; working ones cannot, because git
+    /// refuses a push to a branch that is checked out.
+    pub bare: bool,
+}
+
+/// A bare repository is a `<name>.git` directory; a working one is any
+/// directory holding a `.git` entry. Recognising both is what lets gitcat be
+/// pointed at an ordinary directory of checkouts and browse them in place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Layout {
+    Bare,
+    Working,
+}
+
+/// Classified from the directory layout rather than by opening the repository,
+/// so scanning a large directory stays cheap.
+fn layout_of(path: &Path) -> Option<Layout> {
+    if !path.is_dir() {
+        return None;
+    }
+    if path.join(".git").exists() {
+        return Some(Layout::Working);
+    }
+    if path.join("HEAD").is_file() && path.join("objects").is_dir() {
+        return Some(Layout::Bare);
+    }
+
+    None
 }
 
 /// Accepts a repository name with or without the `.git` suffix and returns the
@@ -54,21 +82,19 @@ pub fn validate_name(name: &str) -> Result<&str, RepoError> {
     Ok(name)
 }
 
-/// Resolves a validated name to a directory inside `root`. `root` must already
-/// be canonical; the resolved path is canonicalized and checked for containment
-/// so a symlink cannot point the server at a directory outside the repo root.
+/// Resolves a validated name to a repository inside `root`, preferring the bare
+/// `<name>.git` form over a working `<name>` checkout when both exist. `root`
+/// must already be canonical; each candidate is canonicalized and checked for
+/// containment so a symlink cannot point the server outside the repo root.
 pub fn resolve_path(root: &Path, name: &str) -> Result<PathBuf, RepoError> {
     let name = validate_name(name)?;
-    let path = root
-        .join(format!("{name}.git"))
-        .canonicalize()
-        .map_err(|_| RepoError::NotFound)?;
 
-    if !path.starts_with(root) {
-        return Err(RepoError::NotFound);
-    }
-
-    Ok(path)
+    [format!("{name}.git"), name.to_owned()]
+        .into_iter()
+        .filter_map(|candidate| root.join(candidate).canonicalize().ok())
+        .filter(|path| path.starts_with(root))
+        .find(|path| layout_of(path).is_some())
+        .ok_or(RepoError::NotFound)
 }
 
 pub fn open(root: &Path, name: &str) -> Result<gix::Repository, RepoError> {
@@ -95,19 +121,25 @@ pub fn discover(root: &Path) -> Result<Vec<RepoEntry>, RepoError> {
         let Some(file_name) = file_name.to_str() else {
             continue;
         };
-        if !file_name.ends_with(".git") || !dir_entry.path().is_dir() {
+        let path = dir_entry.path();
+        let Some(layout) = layout_of(&path) else {
             continue;
-        }
+        };
         let Ok(name) = validate_name(file_name) else {
             tracing::debug!(name = file_name, "skipping repository with invalid name");
             continue;
         };
 
-        match read_entry(&dir_entry.path(), name) {
+        match read_entry(&path, name, layout) {
             Ok(entry) => entries.push(entry),
             Err(e) => tracing::debug!(name, error = %e, "skipping unreadable repository"),
         }
     }
+
+    // `foo.git` and `foo` resolve to the same name, and the bare one wins to
+    // match how `resolve_path` picks between them
+    entries.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| b.bare.cmp(&a.bare)));
+    entries.dedup_by(|a, b| a.name == b.name);
 
     entries.sort_by(|a, b| {
         let time = b.head.as_ref().map(|c| c.seconds);
@@ -118,18 +150,23 @@ pub fn discover(root: &Path) -> Result<Vec<RepoEntry>, RepoError> {
     Ok(entries)
 }
 
-fn read_entry(path: &Path, name: &str) -> Result<RepoEntry, RepoError> {
+fn read_entry(path: &Path, name: &str, layout: Layout) -> Result<RepoEntry, RepoError> {
     let repo = gix::open(path).map_err(|e| RepoError::Open(Box::new(e)))?;
 
     Ok(RepoEntry {
         name: name.to_owned(),
-        description: read_description(path),
+        description: read_description(path, layout),
         head: head_summary(&repo),
+        bare: layout == Layout::Bare,
     })
 }
 
-fn read_description(path: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(path.join("description")).ok()?;
+fn read_description(path: &Path, layout: Layout) -> Option<String> {
+    let git_dir = match layout {
+        Layout::Bare => path.to_owned(),
+        Layout::Working => path.join(".git"),
+    };
+    let text = std::fs::read_to_string(git_dir.join("description")).ok()?;
     let text = text.trim();
 
     if text.is_empty() || text.starts_with(DEFAULT_DESCRIPTION_PREFIX) {

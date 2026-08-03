@@ -117,3 +117,98 @@ fn refuses_to_open_outside_the_repo_root() {
         Err(repo::RepoError::NotFound)
     ));
 }
+
+#[test]
+fn discovers_working_repositories_alongside_bare_ones() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+
+    common::bare_repo_with_commit(root, "served", "bare commit", 1_700_000_000);
+
+    let work = root.join("checkout");
+    std::fs::create_dir_all(&work).expect("create work tree");
+    common::git(&work, &["init", "--initial-branch", "main", "."]);
+    std::fs::write(work.join("a.txt"), "hello\n").expect("write");
+    common::git(&work, &["add", "."]);
+    common::commit(&work, "working commit", 1_700_000_100);
+
+    let repos = repo::discover(root).expect("discover");
+    let names: Vec<_> = repos.iter().map(|r| r.name.as_str()).collect();
+
+    assert_eq!(names, ["checkout", "served"]);
+
+    let checkout = repos.iter().find(|r| r.name == "checkout").expect("repo");
+    let served = repos.iter().find(|r| r.name == "served").expect("repo");
+
+    assert!(!checkout.bare);
+    assert!(served.bare);
+    assert_eq!(
+        checkout.head.as_ref().expect("head").summary,
+        "working commit"
+    );
+}
+
+#[test]
+fn a_working_repository_opens_by_name() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path().canonicalize().expect("canonicalize");
+
+    let work = root.join("checkout");
+    std::fs::create_dir_all(&work).expect("create work tree");
+    common::git(&work, &["init", "--initial-branch", "main", "."]);
+    std::fs::write(work.join("a.txt"), "hello\n").expect("write");
+    common::git(&work, &["add", "."]);
+    common::commit(&work, "working commit", 1_700_000_000);
+
+    assert!(repo::open(&root, "checkout").is_ok());
+    assert!(matches!(
+        repo::open(&root, "missing"),
+        Err(repo::RepoError::NotFound)
+    ));
+}
+
+#[test]
+fn a_bare_repository_wins_a_name_collision() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path().canonicalize().expect("canonicalize");
+
+    common::bare_repo_with_commit(&root, "both", "bare commit", 1_700_000_000);
+
+    let work = root.join("both");
+    std::fs::create_dir_all(&work).expect("create work tree");
+    common::git(&work, &["init", "--initial-branch", "main", "."]);
+    std::fs::write(work.join("a.txt"), "hello\n").expect("write");
+    common::git(&work, &["add", "."]);
+    common::commit(&work, "working commit", 1_700_000_100);
+
+    let repos = repo::discover(&root).expect("discover");
+    let listed: Vec<_> = repos.iter().filter(|r| r.name == "both").collect();
+
+    assert_eq!(listed.len(), 1, "the name is listed once");
+    assert!(listed[0].bare, "the bare repository is the one listed");
+    assert_eq!(
+        listed[0].head.as_ref().expect("head").summary,
+        "bare commit"
+    );
+
+    let opened = repo::open(&root, "both").expect("open");
+    assert!(
+        opened.path().ends_with("both.git"),
+        "opening resolves to the bare repository too"
+    );
+}
+
+#[test]
+fn a_plain_directory_is_not_a_repository() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path().canonicalize().expect("canonicalize");
+
+    std::fs::create_dir(root.join("notes")).expect("mkdir");
+    std::fs::write(root.join("notes/todo.txt"), "things\n").expect("write");
+
+    assert!(repo::discover(&root).expect("discover").is_empty());
+    assert!(matches!(
+        repo::open(&root, "notes"),
+        Err(repo::RepoError::NotFound)
+    ));
+}
