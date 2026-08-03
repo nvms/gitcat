@@ -147,7 +147,7 @@ fn commit_list(ctx: &Context, commits: &[Commit]) -> Markup {
                     a href=(ctx.commit_url(&commit.id)) { (commit.summary) }
                     div class="muted" {
                         span class="mono" { (commit.short_id) }
-                        " " (commit.author) " " (time::relative(commit.seconds))
+                        " " (time::relative(commit.seconds))
                     }
                 }
             }

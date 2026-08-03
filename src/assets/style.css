@@ -149,8 +149,7 @@ ul.plain {
 }
 
 .commits li {
-  padding: 0.25rem 0;
-  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.5rem;
 }
 
 .readme {
