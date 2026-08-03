@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+RED="\033[31m"
+YELLOW="\033[33m"
+GREEN="\033[32m"
+DIM="\033[2m"
+RESET="\033[0m"
+BOLD="\033[1m"
+CYAN="\033[36m"
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$DIR"
+
+has_issues=0
+
+echo -e "${BOLD}gitcat${RESET} ${DIM}audit${RESET}"
+echo ""
+
+uncommitted=$(git status --short 2>/dev/null || true)
+if [ -n "$uncommitted" ]; then
+  staged=$(git diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')
+  unstaged=$(git diff --name-only 2>/dev/null | wc -l | tr -d ' ')
+  untracked=$(git ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')
+  parts=()
+  [ "$staged" -gt 0 ] && parts+=("${staged} staged")
+  [ "$unstaged" -gt 0 ] && parts+=("${unstaged} modified")
+  [ "$untracked" -gt 0 ] && parts+=("${untracked} untracked")
+  echo -e "${YELLOW}uncommitted: $(IFS=', '; echo "${parts[*]}")${RESET}"
+  has_issues=1
+else
+  echo -e "${GREEN}git clean${RESET}"
+fi
+
+unpushed=$(git log --oneline @{u}..HEAD 2>/dev/null | wc -l | tr -d ' ')
+if [ "$unpushed" -gt 0 ]; then
+  echo -e "${YELLOW}${unpushed} unpushed commit(s)${RESET}"
+  has_issues=1
+else
+  echo -e "${GREEN}pushed${RESET}"
+fi
+
+if [ -f Cargo.toml ]; then
+  if [ ! -f Cargo.lock ]; then
+    echo -e "${YELLOW}no Cargo.lock${RESET}"
+    has_issues=1
+  elif [ Cargo.toml -nt Cargo.lock ]; then
+    echo -e "${YELLOW}Cargo.lock is stale${RESET}"
+    has_issues=1
+  else
+    echo -e "${GREEN}lockfile ok${RESET}"
+  fi
+
+  if cargo fmt --check >/dev/null 2>&1; then
+    echo -e "${GREEN}fmt clean${RESET}"
+  else
+    echo -e "${YELLOW}fmt: needs formatting${RESET}"
+    has_issues=1
+  fi
+
+  if cargo clippy --all-targets --quiet -- -D warnings >/dev/null 2>&1; then
+    echo -e "${GREEN}clippy clean${RESET}"
+  else
+    echo -e "${RED}clippy: warnings${RESET}"
+    has_issues=1
+  fi
+
+  if cargo test --quiet >/dev/null 2>&1; then
+    echo -e "${GREEN}tests passing${RESET}"
+  else
+    echo -e "${RED}tests failing${RESET}"
+    has_issues=1
+  fi
+
+  version=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+  latest_tag=$(git tag --sort=-v:refname | head -1 | sed 's/^v//')
+  if [ -n "$latest_tag" ] && [ "$version" != "$latest_tag" ]; then
+    echo -e "${CYAN}version ${version} (latest tag ${latest_tag})${RESET}"
+  fi
+else
+  echo -e "${DIM}no Cargo.toml - not scaffolded yet${RESET}"
+fi
+
+ci_result=$(gh run list --limit 1 --json conclusion,status 2>/dev/null || echo "[]")
+ci_conclusion=$(echo "$ci_result" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r[0].get('conclusion','none') if r else 'none')" 2>/dev/null || echo "none")
+ci_status=$(echo "$ci_result" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r[0].get('status','none') if r else 'none')" 2>/dev/null || echo "none")
+
+if [ "$ci_status" = "in_progress" ] || [ "$ci_status" = "queued" ]; then
+  echo -e "${YELLOW}ci: ${ci_status}${RESET}"
+elif [ "$ci_conclusion" = "failure" ]; then
+  echo -e "${RED}ci: failing${RESET}"
+  has_issues=1
+elif [ "$ci_conclusion" = "success" ]; then
+  echo -e "${GREEN}ci: passing${RESET}"
+else
+  echo -e "${DIM}ci: no runs${RESET}"
+fi
+
+echo ""
+exit $has_issues
