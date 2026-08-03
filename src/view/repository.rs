@@ -158,10 +158,10 @@ fn commit_list(ctx: &Context, commits: &[Commit]) -> Markup {
 /// The rendered markup is produced by `markdown::render`, which strips raw HTML
 /// and unsafe link schemes before it ever reaches here.
 fn readme_section(ctx: &Context, readme: &Readme) -> Markup {
-    let markup = if is_markdown(&readme.name) {
+    let markup = if is_markdown(&readme.path) {
         PreEscaped(markdown::render(
             &readme.text,
-            &links_relative_to(ctx, &readme.name),
+            &links_relative_to(ctx, &readme.path),
         ))
     } else {
         html! { pre { (readme.text) } }
@@ -306,13 +306,23 @@ fn line_prefix(kind: LineKind) -> &'static str {
     }
 }
 
-pub fn tree(ctx: &Context, path: &str, items: &[TreeItem]) -> Markup {
+pub struct TreeView<'a> {
+    pub path: &'a str,
+    pub items: &'a [TreeItem],
+    pub readme: Option<&'a Readme>,
+}
+
+pub fn tree(ctx: &Context, view: &TreeView) -> Markup {
     page(
         &ctx.title("tree"),
         ctx.nav("tree"),
         html! {
-            (breadcrumbs(ctx, path, "tree"))
-            (tree_table(ctx, path, items))
+            (breadcrumbs(ctx, view.path, "tree"))
+            (tree_table(ctx, view.path, view.items))
+
+            @if let Some(readme) = view.readme {
+                (readme_section(ctx, readme))
+            }
         },
     )
 }

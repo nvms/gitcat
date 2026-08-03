@@ -8,7 +8,7 @@ use axum::routing::get;
 use maud::Markup;
 
 use crate::config::Config;
-use crate::view::repository::{Context, Summary};
+use crate::view::repository::{Context, Summary, TreeView};
 use crate::{git, repo, view};
 
 pub type AppState = Arc<Config>;
@@ -96,7 +96,7 @@ async fn summary(
     let (entries, readme) = match git::resolve(&git_repo, &rev) {
         Ok(head) => (
             git::tree(&git_repo, head, "").unwrap_or_default(),
-            git::readme(&git_repo, head),
+            git::readme(&git_repo, head, ""),
         ),
         Err(_) => (Vec::new(), None),
     };
@@ -174,13 +174,21 @@ async fn tree(
     let name = repo::validate_name(&name)?.to_owned();
     let id = git::resolve(&git_repo, &rev)?;
     let items = git::tree(&git_repo, id, &path)?;
+    let readme = git::readme(&git_repo, id, &path);
 
     let ctx = Context {
         repo: &name,
         rev: &rev,
     };
 
-    Ok(view::repository::tree(&ctx, &path, &items))
+    Ok(view::repository::tree(
+        &ctx,
+        &TreeView {
+            path: &path,
+            items: &items,
+            readme: readme.as_ref(),
+        },
+    ))
 }
 
 async fn blob(

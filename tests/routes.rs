@@ -476,3 +476,73 @@ async fn the_stylesheet_url_changes_with_its_content() {
     assert_eq!(status, StatusCode::OK);
     assert!(css.contains("--bg:"));
 }
+
+#[tokio::test]
+async fn a_subdirectory_readme_renders_below_its_listing() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+    let work = root.join("work");
+    std::fs::create_dir_all(work.join("benchmarks")).expect("create work tree");
+
+    common::git(&work, &["init", "--initial-branch", "main", "."]);
+    std::fs::write(work.join("README.md"), "# Root readme\n").expect("write");
+    std::fs::write(
+        work.join("benchmarks/README.md"),
+        "# Benchmarks\n\n[result](./out.txt)\n",
+    )
+    .expect("write");
+    std::fs::write(work.join("benchmarks/out.txt"), "numbers\n").expect("write");
+    common::git(&work, &["add", "."]);
+    common::commit(&work, "initial", 1_700_000_000);
+    common::git(
+        root,
+        &["clone", "--bare", work.to_str().expect("utf-8"), "demo.git"],
+    );
+    std::fs::remove_dir_all(&work).expect("cleanup");
+
+    let (status, body) = get(root, "/demo/tree/main/benchmarks").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("<h1>Benchmarks</h1>"), "readme is rendered");
+    assert!(
+        !body.contains("Root readme"),
+        "the directory's own readme is used, not the root one"
+    );
+    assert!(
+        body.contains(r#"href="/demo/blob/main/benchmarks/out.txt""#),
+        "relative links resolve inside the subdirectory"
+    );
+
+    let listing = body.find("out.txt").expect("tree entry");
+    let readme = body.find("<h1>Benchmarks</h1>").expect("readme");
+    assert!(listing < readme, "the readme sits below the folder list");
+}
+
+#[tokio::test]
+async fn a_directory_without_a_readme_renders_only_the_listing() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+    let work = root.join("work");
+    std::fs::create_dir_all(work.join("src")).expect("create work tree");
+
+    common::git(&work, &["init", "--initial-branch", "main", "."]);
+    std::fs::write(work.join("README.md"), "# Root readme\n").expect("write");
+    std::fs::write(work.join("src/main.rs"), "fn main() {}\n").expect("write");
+    common::git(&work, &["add", "."]);
+    common::commit(&work, "initial", 1_700_000_000);
+    common::git(
+        root,
+        &["clone", "--bare", work.to_str().expect("utf-8"), "demo.git"],
+    );
+    std::fs::remove_dir_all(&work).expect("cleanup");
+
+    let (status, body) = get(root, "/demo/tree/main/src").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("main.rs"));
+    assert!(
+        !body.contains("Root readme"),
+        "no readme leaks in from above"
+    );
+    assert!(!body.contains(r#"class="readme""#));
+}

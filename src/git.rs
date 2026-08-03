@@ -305,17 +305,19 @@ pub fn blob(repo: &gix::Repository, id: gix::ObjectId, path: &str) -> Result<Blo
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Readme {
-    pub name: String,
+    /// Path from the repository root, so relative links inside the file can be
+    /// resolved against the directory it lives in.
+    pub path: String,
     pub text: String,
 }
 
-/// Finds a README at the root of the tree. `README.md` wins over a bare
-/// `README`, and the comparison is case-insensitive because repositories are
-/// inconsistent about it.
-pub fn readme(repo: &gix::Repository, id: gix::ObjectId) -> Option<Readme> {
+/// Finds a README in the tree at `path`, which is how a directory listing gets
+/// one rendered underneath it. `README.md` wins over a bare `README`, and the
+/// comparison is case-insensitive because repositories are inconsistent.
+pub fn readme(repo: &gix::Repository, id: gix::ObjectId, path: &str) -> Option<Readme> {
     const PREFERRED: [&str; 4] = ["readme.md", "readme.markdown", "readme.txt", "readme"];
 
-    let entries = tree(repo, id, "").ok()?;
+    let entries = tree(repo, id, path).ok()?;
     let name = PREFERRED.iter().find_map(|candidate| {
         entries
             .iter()
@@ -325,14 +327,20 @@ pub fn readme(repo: &gix::Repository, id: gix::ObjectId) -> Option<Readme> {
             .map(|item| item.name.clone())
     })?;
 
-    let blob = blob(repo, id, &name).ok()?;
+    let full_path = if path.is_empty() {
+        name
+    } else {
+        format!("{path}/{name}")
+    };
+
+    let blob = blob(repo, id, &full_path).ok()?;
     if blob.binary || blob.bytes.len() > MAX_RENDER_BYTES {
         return None;
     }
 
     Some(Readme {
         text: String::from_utf8_lossy(&blob.bytes).into_owned(),
-        name,
+        path: full_path,
     })
 }
 
