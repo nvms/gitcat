@@ -45,11 +45,11 @@ if [ -f Cargo.toml ]; then
   if [ ! -f Cargo.lock ]; then
     echo -e "${YELLOW}no Cargo.lock${RESET}"
     has_issues=1
-  elif [ Cargo.toml -nt Cargo.lock ]; then
-    echo -e "${YELLOW}Cargo.lock is stale${RESET}"
-    has_issues=1
-  else
+  elif cargo metadata --locked --format-version 1 >/dev/null 2>&1; then
     echo -e "${GREEN}lockfile ok${RESET}"
+  else
+    echo -e "${YELLOW}Cargo.lock out of sync with Cargo.toml${RESET}"
+    has_issues=1
   fi
 
   if cargo fmt --check >/dev/null 2>&1; then

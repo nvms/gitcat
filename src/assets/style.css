@@ -1,0 +1,101 @@
+:root {
+  --bg: #111;
+  --fg: #d8d8d8;
+  --muted: #777;
+  --accent: #7fd1c1;
+  --border: #2a2a2a;
+  --row: #171717;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+header {
+  border-bottom: 1px solid var(--border);
+  padding: 0.75rem 1.5rem;
+}
+
+.brand {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+h1 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0 0 1.25rem;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+code {
+  color: var(--fg);
+  background: var(--row);
+  border: 1px solid var(--border);
+  padding: 0.05rem 0.3rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.empty {
+  color: var(--muted);
+}
+
+table.repos {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+table.repos th {
+  text-align: left;
+  font-weight: 400;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding: 0.35rem 0.75rem 0.35rem 0;
+}
+
+table.repos td {
+  padding: 0.35rem 0.75rem 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+table.repos tr:hover td {
+  background: var(--row);
+}
+
+.description {
+  color: var(--fg);
+  width: 55%;
+}
+
+.updated {
+  color: var(--muted);
+  white-space: nowrap;
+}

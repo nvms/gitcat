@@ -1,14 +1,24 @@
 # gitcat
 
+[![ci](https://github.com/nvms/gitcat/actions/workflows/ci.yml/badge.svg)](https://github.com/nvms/gitcat/actions/workflows/ci.yml)
+
 A self-hosted git server. Point it at a directory of bare repositories and you get a remote you can push to, plus a web interface for reading the code in a browser.
 
 Pushes and clones go over git's smart HTTP protocol, so `git remote add origin http://your-server/myrepo.git` is all a client needs to talk to it. The web interface covers commit history, individual commit diffs, the file tree at any ref, syntax-highlighted file contents, and blame annotations.
 
 It is not a forge. There is no issue tracker, no pull request workflow, and no wiki.
 
+## Usage
+
+```
+gitcat --repos /srv/git --bind 0.0.0.0:9090
+```
+
+Every `*.git` directory under `--repos` is picked up as a repository. Create one with `git init --bare /srv/git/myrepo.git`. Options can also be set through `GITCAT_REPOS`, `GITCAT_BIND`, and `GITCAT_SITE_NAME`; log level comes from `GITCAT_LOG`.
+
 ## Status
 
-Early. The repository currently holds scaffolding while the server is being built.
+Early. The repository list is browsable and the server runs. Push and clone over smart HTTP, the log and diff views, syntax highlighting, and blame are still being built.
 
 ---
 
