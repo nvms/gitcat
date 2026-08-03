@@ -147,9 +147,7 @@ ul.plain {
   border-bottom: 1px solid var(--line);
 }
 
-/* prose stays at a readable measure even though the page is wide */
 .readme {
-  max-width: 62rem;
   margin-top: 3rem;
   border-top: 1px solid var(--line);
   padding-top: 1.5rem;
