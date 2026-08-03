@@ -86,3 +86,23 @@ async fn unknown_paths_return_404() {
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(body.contains("Not Found"));
 }
+
+#[tokio::test]
+async fn the_header_brand_is_the_same_everywhere() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+    common::bare_repo_with_commit(root, "demo", "a commit", 1_700_000_000);
+
+    let (_, index) = get(root, "/").await;
+    let (_, repo) = get(root, "/demo").await;
+
+    assert!(
+        index.contains(r#"<header><a href="/">gitcat</a>"#),
+        "the index header says gitcat, not the configured site name"
+    );
+    assert!(repo.contains(r#"<a href="/">gitcat</a>"#));
+    assert!(
+        index.contains("<title>test site</title>"),
+        "the site name still names the instance in the page title"
+    );
+}

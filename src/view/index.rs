@@ -8,7 +8,8 @@ use crate::time;
 pub fn render(config: &Config, repos: &[RepoEntry]) -> Markup {
     page(
         &config.site_name,
-        html! { a href="/" { (config.site_name) } },
+        // the brand is fixed; --site-name names the instance in the page title
+        html! { a href="/" { "gitcat" } },
         html! {
             @if repos.is_empty() {
                 p class="muted" {
