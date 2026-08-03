@@ -112,12 +112,18 @@ img {
   color: var(--muted);
 }
 
-.diff .add {
+.diff .add,
+.counts .add {
   color: var(--add);
 }
 
-.diff .del {
+.diff .del,
+.counts .del {
   color: var(--del);
+}
+
+.counts {
+  font-weight: normal;
 }
 
 .panels {

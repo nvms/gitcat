@@ -546,3 +546,50 @@ async fn a_directory_without_a_readme_renders_only_the_listing() {
     );
     assert!(!body.contains(r#"class="readme""#));
 }
+
+#[tokio::test]
+async fn a_commit_reports_how_many_lines_changed() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let fixture = fixture(tmp.path());
+
+    let (status, body) = get(tmp.path(), &format!("/demo/commit/{}", fixture.head)).await;
+    let text = text_of(&body);
+
+    assert_eq!(status, StatusCode::OK);
+
+    // keep.txt: one line each way. gone.txt: one removed. added.txt: one added.
+    assert!(
+        text.contains("3 files changed"),
+        "expected a file count in: {text}"
+    );
+    assert!(text.contains("+2"), "expected two added lines in: {text}");
+    assert!(text.contains("-2"), "expected two removed lines in: {text}");
+}
+
+#[tokio::test]
+async fn a_binary_change_contributes_no_line_counts() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+    let work = root.join("work");
+    std::fs::create_dir_all(&work).expect("create work tree");
+
+    common::git(&work, &["init", "--initial-branch", "main", "."]);
+    std::fs::write(work.join("data.bin"), [0u8, 1, 2, 0, 3]).expect("write");
+    std::fs::write(work.join("notes.txt"), "one\n").expect("write");
+    common::git(&work, &["add", "."]);
+    common::commit(&work, "add files", 1_700_000_000);
+    let head = common::capture(&work, &["rev-parse", "HEAD"]);
+    common::git(
+        root,
+        &["clone", "--bare", work.to_str().expect("utf-8"), "demo.git"],
+    );
+    std::fs::remove_dir_all(&work).expect("cleanup");
+
+    let (status, body) = get(root, &format!("/demo/commit/{head}")).await;
+    let text = text_of(&body);
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(text.contains("2 files changed"));
+    assert!(text.contains("+1"), "only the text file counts: {text}");
+    assert!(body.contains("Binary file, not shown."));
+}

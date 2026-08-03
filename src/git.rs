@@ -115,6 +115,43 @@ pub struct FileDiff {
     pub body: DiffBody,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DiffStats {
+    pub files: usize,
+    pub added: usize,
+    pub removed: usize,
+}
+
+impl FileDiff {
+    /// Lines added and removed. A submodule, binary, oversized, or unreadable
+    /// change has no line counts and contributes nothing.
+    pub fn line_counts(&self) -> (usize, usize) {
+        let DiffBody::Text(hunks) = &self.body else {
+            return (0, 0);
+        };
+
+        hunks
+            .iter()
+            .flat_map(|hunk| &hunk.lines)
+            .fold((0, 0), |(added, removed), line| match line.kind {
+                LineKind::Add => (added + 1, removed),
+                LineKind::Remove => (added, removed + 1),
+                LineKind::Context => (added, removed),
+            })
+    }
+}
+
+pub fn stats(diffs: &[FileDiff]) -> DiffStats {
+    diffs.iter().fold(DiffStats::default(), |totals, file| {
+        let (added, removed) = file.line_counts();
+        DiffStats {
+            files: totals.files + 1,
+            added: totals.added + added,
+            removed: totals.removed + removed,
+        }
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RefInfo {
     pub name: String,

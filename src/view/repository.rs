@@ -5,7 +5,7 @@ use crate::git::{
     Blob, ChangeStatus, Commit, DiffBody, EntryKind, FileDiff, Hunk, LineKind, MAX_RENDER_BYTES,
     Readme, RefInfo, TreeItem,
 };
-use crate::{highlight, markdown, time};
+use crate::{git, highlight, markdown, time};
 
 pub struct Context<'a> {
     pub repo: &'a str,
@@ -233,7 +233,14 @@ pub fn commit(ctx: &Context, commit: &Commit, diffs: &[FileDiff]) -> Markup {
 
             @if diffs.is_empty() {
                 p class="muted" { "No changes." }
+            } @else {
+                @let totals = git::stats(diffs);
+                p {
+                    (totals.files) " " (plural("file", totals.files)) " changed, "
+                    (counts(totals.added, totals.removed))
+                }
             }
+
             @for file in diffs {
                 h3 {
                     (status_label(file.status)) " "
@@ -241,11 +248,35 @@ pub fn commit(ctx: &Context, commit: &Commit, diffs: &[FileDiff]) -> Markup {
                     @if let Some(old) = &file.old_path {
                         span class="muted" { " (from " (old) ")" }
                     }
+                    @let (added, removed) = file.line_counts();
+                    " " (counts(added, removed))
                 }
                 (diff_body(&file.body))
             }
         },
     )
+}
+
+/// Nothing is shown when a change has no line counts, which is the case for
+/// submodules and for content that was binary or too large to diff.
+fn counts(added: usize, removed: usize) -> Markup {
+    html! {
+        @if added > 0 || removed > 0 {
+            span class="counts" {
+                @if added > 0 { span class="add" { "+" (added) } }
+                @if added > 0 && removed > 0 { " " }
+                @if removed > 0 { span class="del" { "-" (removed) } }
+            }
+        }
+    }
+}
+
+fn plural(word: &str, count: usize) -> String {
+    if count == 1 {
+        word.to_owned()
+    } else {
+        format!("{word}s")
+    }
 }
 
 fn status_label(status: ChangeStatus) -> &'static str {
