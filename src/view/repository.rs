@@ -319,7 +319,7 @@ pub fn tree(ctx: &Context, path: &str, items: &[TreeItem]) -> Markup {
 
 fn tree_table(ctx: &Context, path: &str, items: &[TreeItem]) -> Markup {
     html! {
-        table {
+        table class="tree" {
             tbody {
                 @if !path.is_empty() {
                     tr { td class="mono" { a href=(ctx.at("tree", parent_of(path))) { ".." } } }

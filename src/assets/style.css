@@ -92,6 +92,12 @@ img {
   max-width: 100%;
 }
 
+.tree td {
+  border: 0;
+  padding-top: 0.1rem;
+  padding-bottom: 0.1rem;
+}
+
 .diff td {
   border: 0;
   padding: 0 0.5rem 0 0;
