@@ -593,3 +593,54 @@ async fn a_binary_change_contributes_no_line_counts() {
     assert!(text.contains("+1"), "only the text file counts: {text}");
     assert!(body.contains("Binary file, not shown."));
 }
+
+#[tokio::test]
+async fn a_commit_lists_changed_files_not_changed_directories() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+    let work = root.join("work");
+    std::fs::create_dir_all(work.join("client/nested")).expect("create work tree");
+
+    common::git(&work, &["init", "--initial-branch", "main", "."]);
+    std::fs::write(work.join("client/package.json"), "{}\n").expect("write");
+    std::fs::write(work.join("client/nested/deep.txt"), "one\n").expect("write");
+    common::git(&work, &["add", "."]);
+    common::commit(&work, "initial", 1_700_000_000);
+
+    std::fs::write(work.join("client/package.json"), "{ }\n").expect("write");
+    std::fs::write(work.join("client/nested/deep.txt"), "two\n").expect("write");
+    common::git(&work, &["add", "-A"]);
+    common::commit(&work, "edit nested files", 1_700_000_100);
+    let head = common::capture(&work, &["rev-parse", "HEAD"]);
+
+    common::git(
+        root,
+        &["clone", "--bare", work.to_str().expect("utf-8"), "demo.git"],
+    );
+    std::fs::remove_dir_all(&work).expect("cleanup");
+
+    let (status, body) = get(root, &format!("/demo/commit/{head}")).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("client/package.json"));
+    assert!(body.contains("client/nested/deep.txt"));
+
+    // the directories holding those files are not changes of their own
+    assert!(
+        !body.contains(r#"href="/demo/blob/main/client"><"#),
+        "the client directory should not be listed"
+    );
+    assert!(
+        !body.contains(r#"href="/demo/blob/main/client/nested"><"#),
+        "the nested directory should not be listed"
+    );
+    assert!(
+        text_of(&body).contains("2 files changed"),
+        "only the two files count: {}",
+        text_of(&body)
+    );
+    assert!(
+        !body.contains("Contents are not available"),
+        "no directory should fall through as unreadable"
+    );
+}

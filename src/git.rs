@@ -404,7 +404,11 @@ pub fn commit_diff(repo: &gix::Repository, id: gix::ObjectId) -> Result<Vec<File
 
     let mut diffs = Vec::with_capacity(changes.len());
     for change in changes {
-        diffs.push(file_diff(repo, change)?);
+        let changed = describe(change);
+        if changed.is_directory() {
+            continue;
+        }
+        diffs.push(file_diff(repo, changed)?);
     }
 
     diffs.sort_by(|a, b| a.path.cmp(&b.path));
@@ -417,6 +421,18 @@ struct ChangedPath {
     status: ChangeStatus,
     old: Option<(gix::ObjectId, gix::object::tree::EntryKind)>,
     new: Option<(gix::ObjectId, gix::object::tree::EntryKind)>,
+}
+
+impl ChangedPath {
+    /// gix reports every changed directory alongside the changed files inside
+    /// it, so a commit touching `a/b.txt` also yields a change for `a`. The
+    /// directory has no diff of its own and its contents are already listed,
+    /// so it is dropped - git's own output does the same.
+    fn is_directory(&self) -> bool {
+        use gix::object::tree::EntryKind::Tree;
+
+        matches!(self.new, Some((_, Tree))) || matches!(self.old, Some((_, Tree)))
+    }
 }
 
 fn describe(change: gix::object::tree::diff::ChangeDetached) -> ChangedPath {
@@ -479,11 +495,7 @@ fn describe(change: gix::object::tree::diff::ChangeDetached) -> ChangedPath {
     }
 }
 
-fn file_diff(
-    repo: &gix::Repository,
-    change: gix::object::tree::diff::ChangeDetached,
-) -> Result<FileDiff, GitError> {
-    let changed = describe(change);
+fn file_diff(repo: &gix::Repository, changed: ChangedPath) -> Result<FileDiff, GitError> {
     let body = diff_body(repo, &changed)?;
 
     Ok(FileDiff {
