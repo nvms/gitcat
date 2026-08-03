@@ -23,7 +23,7 @@ pub fn render(config: &Config, repos: &[RepoEntry]) -> Markup {
                     tbody {
                         @for repo in repos {
                             tr {
-                                td { a href={ "/" (encode_segment(&repo.name)) } { (repo.name) } }
+                                td class="mono" { a href={ "/" (encode_segment(&repo.name)) } { (repo.name) } }
                                 td {
                                     @match &repo.description {
                                         Some(text) => (text),

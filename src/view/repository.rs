@@ -101,7 +101,7 @@ pub fn summary(ctx: &Context, data: &Summary) -> Markup {
 
 fn ref_list(ctx: &Context, refs: &[RefInfo]) -> Markup {
     html! {
-        ul {
+        ul class="mono" {
             @for entry in refs {
                 li {
                     a href={ (ctx.base()) "/tree/" (encode_segment(&entry.name)) } { (entry.name) }
@@ -160,7 +160,7 @@ fn commit_table(ctx: &Context, commits: &[Commit]) -> Markup {
             tbody {
                 @for commit in commits {
                     tr {
-                        td { a href=(ctx.commit_url(&commit.id)) { (commit.short_id) } }
+                        td class="mono" { a href=(ctx.commit_url(&commit.id)) { (commit.short_id) } }
                         td { (commit.summary) }
                         td class="muted" { (commit.author) }
                         td class="muted" { (time::relative(commit.seconds)) }
@@ -183,10 +183,10 @@ pub fn commit(ctx: &Context, commit: &Commit, diffs: &[FileDiff]) -> Markup {
             p class="muted" {
                 (commit.author) " <" (commit.email) "> " (time::relative(commit.seconds))
                 br;
-                "commit " (commit.id)
+                "commit " span class="mono" { (commit.id) }
                 @for parent in &commit.parents {
                     br;
-                    "parent " a href=(ctx.commit_url(parent)) { (parent) }
+                    "parent " a class="mono" href=(ctx.commit_url(parent)) { (parent) }
                 }
             }
 
@@ -196,7 +196,7 @@ pub fn commit(ctx: &Context, commit: &Commit, diffs: &[FileDiff]) -> Markup {
             @for file in diffs {
                 h3 {
                     (status_label(file.status)) " "
-                    a href=(ctx.at("blob", &file.path)) { (file.path) }
+                    a class="mono" href=(ctx.at("blob", &file.path)) { (file.path) }
                     @if let Some(old) = &file.old_path {
                         span class="muted" { " (from " (old) ")" }
                     }
@@ -281,11 +281,11 @@ fn tree_table(ctx: &Context, path: &str, items: &[TreeItem]) -> Markup {
         table {
             tbody {
                 @if !path.is_empty() {
-                    tr { td { a href=(ctx.at("tree", parent_of(path))) { ".." } } }
+                    tr { td class="mono" { a href=(ctx.at("tree", parent_of(path))) { ".." } } }
                 }
                 @for item in items {
                     tr {
-                        td {
+                        td class="mono" {
                             @let child = join(path, &item.name);
                             @match item.kind {
                                 EntryKind::Directory => {
@@ -366,7 +366,7 @@ fn breadcrumbs(ctx: &Context, path: &str, section: &str) -> Markup {
     let last = crumbs.len().saturating_sub(1);
 
     html! {
-        p {
+        p class="mono" {
             (ctx.rev) ": "
             a href=(ctx.at("tree", "")) { (ctx.repo) }
             @for (i, (name, full)) in crumbs.iter().enumerate() {

@@ -32,7 +32,16 @@ body {
   padding: 1.5rem;
   background: var(--bg);
   color: var(--fg);
-  font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 14px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+code,
+pre,
+.mono,
+.diff {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
 }
 
 a {
