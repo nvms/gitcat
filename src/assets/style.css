@@ -44,8 +44,14 @@ pre,
   font-size: 0.9em;
 }
 
+/* links take the text colour rather than a hue, so the underline is what marks
+   them; hover has to put the feedback back somewhere */
 a {
   color: inherit;
+}
+
+a:hover {
+  color: var(--muted);
 }
 
 header {
@@ -57,7 +63,6 @@ nav a {
 }
 
 nav .active {
-  text-decoration: none;
   font-weight: bold;
 }
 
